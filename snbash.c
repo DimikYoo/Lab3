@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -15,67 +16,59 @@
 
 int main(void)
 {
-	pid_t pid;
-	//pid_t terminalPid;
+	char str[BUFSIZE];
 	int exitCode;
-	int i = 0;
-	
-	/*terminalPid = fork();
-	if(terminalPid == -1)
-	{
-		printf("Opening log terminal failed. Stopping.\n");
-		perror(NULL);
-		exit(2);
-	}
-	else if(terminalPid == 0)
-	{
-		execlp("gnome-terminal", "gnome-terminal", NULL);
-	}*/
+	int i;
+	int readed;
+	int cnt;
+	int fd;
+	int stat_val;
+	pid_t pid;
+	pid_t child_pid;
 	
 	while(1)
 	{
 		sleep(1);
-		char str[BUFSIZE];
+		i = 0;
 		getcwd(str, BUFSIZE);
 		strcat(str, ": ");
 		write(1, str, strlen(str));
-		char argstr[BUFSIZE];
 		for(i = 0; i < BUFSIZE; i++)
-			argstr[i] = '\0';
+			str[i] = '\0';
 		i = 0;
 		
-		int readed = read(0, argstr, BUFSIZE);
-		if(readed == 0 || strcmp(argstr, "\n") == 0)
+		readed = read(0, str, BUFSIZE);
+		if(readed == 0 || strcmp(str, "\n") == 0)
 			continue;
-		else if(strcmp(argstr, "exit\n") == 0)
+		else if(strcmp(str, "exit\n") == 0)
 			break;
 	
-		for(i = strlen(argstr)-1; i >= 0; i--)
+		for(i = strlen(str)-1; i >= 0; i--)
 		{
-			if(isalnum(argstr[i]) || ispunct(argstr[i]))
+			if(isalnum(str[i]) || ispunct(str[i]))
 				break;
-			if(argstr[i] == ' ')
+			if(str[i] == ' ')
 			{
-				argstr[i] = '\0';
+				str[i] = '\0';
 			}
-			else if(argstr[i] == '\n')
+			else if(str[i] == '\n')
 			{
-				argstr[i] = '\0';
+				str[i] = '\0';
 			}
 		}
 	
-		int cnt = 0;
+		cnt = 0;
 		i = 0;
 		do
 		{
-			if(argstr[i] == ' ')
+			if(str[i] == ' ')
 				cnt++;
 			i++;
-		} while(argstr[i-1] != '\0');
+		} while(str[i-1] != '\0');
 	
-		char *args[cnt+3];
+		char *args[cnt+2];
 		i = 0;
-		args[i] = strtok(argstr, " ");
+		args[i] = strtok(str, " ");
 		i++;
 		while(args[i-1] != NULL)
 		{
@@ -89,18 +82,6 @@ int main(void)
 			continue;
 		}
 	
-		// That is how I tried to do... Nothing works.
-		//char *logto = (char *)calloc(BUFSIZE, 1);
-		//sprintf(logto, ">/proc/%d/fd/1", terminalPid);
-		//sprintf(logto, ">/dev/pts/6");
-		//sprintf(logto, ">>outlog.txt");
-		//args[cnt+1] = logto;
-		//args[cnt+2] = NULL;
-		
-		for(i = 0; i < cnt+3; i++)
-			printf("arg %d: %s\n", i, args[i]);
-		i = 0;
-
 		pid = fork();
 		switch(pid)
 		{
@@ -109,6 +90,17 @@ int main(void)
 				perror(NULL);
 				break;
 			case 0:
+				fd = open("outlog.txt", O_RDWR | O_APPEND | O_CREAT, 
+										S_IRUSR | S_IWUSR);
+				dup2(fd, 1);
+				close(fd);
+				write(1, "\n", 1);
+				for(i = 0; i < cnt+1; i++)
+				{
+					write(1, args[i], strlen(args[i]));
+					write(1, " ", 1);
+				}
+				write(1, ":\n", 2);
 				execvp(args[0], args);
 				exitCode = 0;
 				break;
@@ -119,12 +111,11 @@ int main(void)
 	
 		if(pid != 0)
 		{
-			int stat_val;
-			pid_t child_pid;
 			child_pid = wait(&stat_val);
 			if(WIFEXITED(stat_val))
 			{
-				printf("Operation finished with code %d\n", WEXITSTATUS(stat_val));
+				printf("Operation finished with code %d\n", 
+						WEXITSTATUS(stat_val));
 			}
 			else
 			{
