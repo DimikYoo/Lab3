@@ -17,6 +17,9 @@
 int main(void)
 {
 	char str[BUFSIZE];
+	char *termPID;
+	char *out;
+	char *logto = NULL;
 	int exitCode;
 	int i;
 	int readed;
@@ -26,8 +29,33 @@ int main(void)
 	pid_t pid;
 	pid_t child_pid;
 	
+	termPID = (char *)calloc(BUFSIZE, 1);
+	out = "This is Surprisingly Not a \"Born Again Shell\", or snbash.\n";
+	write(1, out, strlen(out));
+	out = "Enter terminal PID to send output to it, or '0' to output to log file.\n";
+	write(1, out, strlen(out));
+	out = "(for first option open another terminal\n";
+	write(1, out, strlen(out));
+	out = "and execute 'ps' to find out its PID): ";
+	write(1, out, strlen(out));
+	read(0, termPID, 10);
+	termPID[strlen(termPID)-1] = '\0';
+	if(strcmp(termPID, "0") != 0) {
+		logto = (char *)calloc(BUFSIZE, 1);
+		sprintf(logto, "/proc/%s/fd/1", termPID);
+		out = "Sending output to terminal with PID ";
+		write(1, out, strlen(out));
+		write(1, termPID, strlen(termPID));
+		write(1, "\n\n", 2);
+	} else {
+		out = "Sending output to logfile 'outlog.txt'\n\n";
+		write(1, out, strlen(out));
+	}
+	free(termPID);
+	
+	
 	while (1) {
-		sleep(1);
+		//sleep(1);
 		i = 0;
 		getcwd(str, BUFSIZE);
 		strcat(str, ": ");
@@ -79,7 +107,11 @@ int main(void)
 			perror(NULL);
 			break;
 		case 0:
-			fd = open("outlog.txt", O_RDWR|O_APPEND|O_CREAT, 0600);
+			if(logto == NULL) {
+				fd = open("outlog.txt", O_RDWR|O_APPEND|O_CREAT, 0600);
+			} else {
+				fd = open(logto, O_RDWR|O_CREAT);
+			}
 			dup2(fd, 1);
 			close(fd);
 			write(1, "\n", 1);
@@ -99,8 +131,8 @@ int main(void)
 		if (pid != 0) {
 			child_pid = wait(&val);
 			if (WIFEXITED(val)) {
-				printf("Operation finished, ");
-				printf("code %d\n", WEXITSTATUS(val));
+				printf("---Operation finished, ");
+				printf("code %d---\n", WEXITSTATUS(val));
 			} else {
 				printf("Child terminated abnormally.\n");
 				perror(NULL);
