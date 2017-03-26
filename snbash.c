@@ -146,11 +146,7 @@ int main(void)
 			}
 			break;
 		default:
-			exitCode = 1;
-			break;
-		}
-		// Parent waits for child's command completion.
-		if (pid != 0) {
+			// Parent waits for child's command completion.
 			child_pid = wait(&i);
 			if (WIFEXITED(i)) {
 				printf("\033[2m--- Operation finished, ");
@@ -158,7 +154,9 @@ int main(void)
 			} else {
 				printf("Child terminated abnormally.\n");
 				perror("Error code");
+				exitCode = 1;
 			}
+			break;
 		}
 	}
 	exitCode = 0;
