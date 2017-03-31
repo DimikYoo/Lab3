@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <signal.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <errno.h>
@@ -13,6 +14,8 @@
 #include <ctype.h>
 
 #define BUFSIZE 512
+#define SILENT_ARG "__silent"
+
 
 int main(void)
 {
@@ -20,10 +23,12 @@ int main(void)
 	char *termPID;
 	char *out;
 	char *logto = NULL;
+	char logwd[BUFSIZE];
 	int exitCode;
 	int i;
 	int cnt;
 	int fd;
+	int silentMode = 0;
 	pid_t pid;
 	pid_t child_pid;
 	
@@ -31,18 +36,26 @@ int main(void)
 	termPID = (char *)calloc(BUFSIZE, 1);
 	out = "This is Surprisingly Not a \"Born Again Shell\", or snbash.\n";
 	write(1, out, strlen(out));
-	out = "Enter terminal PID to send output to it, ";
+	out = "Enter:\n\033[1mterminal PID\033[0m to send output to it,\n";
 	write(1, out, strlen(out));
-	out = "or '0' to output to log file.\n";
+	out = "\033[1m'0'\033[0m to output to log file, or\n";
 	write(1, out, strlen(out));
-	out = "(for first option open another terminal\n";
+	out = "\033[1m'this'\033[0m to output to this terminal.\n";
 	write(1, out, strlen(out));
-	out = "and execute 'ps' to find out its PID): ";
+	out = "\033[2m(for first option open another terminal\n";
+	write(1, out, strlen(out));
+	out = "and execute 'ps' to find out its PID)\033[0m\n: ";
 	write(1, out, strlen(out));
 	// If input here is incorrect, it will be catched later.
 	read(0, termPID, 10);
 	termPID[strlen(termPID)-1] = '\0';
-	if (strcmp(termPID, "0") != 0) {
+	if(strcmp(termPID, "this") == 0) {
+		logto = (char *)calloc(BUFSIZE, 1);
+		sprintf(logto, "/proc/%d/fd/1", getpid());
+		out = "Sending output to this terminal.\n\n";
+		write(1, out, strlen(out));
+	}
+	else if (strcmp(termPID, "0") != 0) {
 		logto = (char *)calloc(BUFSIZE, 1);
 		sprintf(logto, "/proc/%s/fd/1", termPID);
 		out = "Sending output to terminal with PID ";
@@ -50,13 +63,16 @@ int main(void)
 		write(1, termPID, strlen(termPID));
 		write(1, "\n\n", 2);
 	} else {
-		out = "Sending output to logfile 'outlog.txt'\n\n";
+		getcwd(logwd, BUFSIZE);
+		strcat(logwd, "/outlog.txt");
+		out = "Sending output to logfile 'outlog.txt'.\n\n";
 		write(1, out, strlen(out));
 	}
 	free(termPID);
 	
 	// Execute commands while not receiving 'exit'.
 	while (1) {
+		(void) signal(SIGINT, SIG_DFL);
 		// Print current working directory.
 		i = 0;
 		out = "\033[38;5;166m\033[1m";
@@ -94,7 +110,13 @@ int main(void)
 		i = 0;
 		args[i] = strtok(str, " ");
 		i++;
-		while (args[i-1] != NULL) {
+		if (strcmp(args[0], SILENT_ARG) == 0) {
+			silentMode = 1;
+			i--;
+		} else {
+			silentMode = 0;
+		}
+		while (args[i - 1 + silentMode] != NULL) {
 			args[i] = strtok(NULL, " ");
 			i++;
 		}
@@ -112,9 +134,13 @@ int main(void)
 			perror(NULL);
 			break;
 		case 0:
+			if (silentMode == 0)
+				(void) signal(SIGINT, SIG_DFL);
+			else
+				(void) signal(SIGINT, SIG_IGN);
 			// Open log file and redirect output to it.
 			if (logto == NULL) {
-				fd = open("outlog.txt", O_RDWR|O_APPEND|O_CREAT, 0600);
+				fd = open(logwd, O_RDWR|O_APPEND|O_CREAT, 0600);
 			} else {
 				fd = open(logto, O_RDWR|O_CREAT);
 			}
@@ -131,7 +157,12 @@ int main(void)
 				out = "\033[93m\033[1m";
 				write(1, out, strlen(out));
 			}
-			for (i = 0; i < cnt+1; i++) {
+			if (silentMode == 1) {
+				out = SILENT_ARG;
+				write(1, out, strlen(out));
+				write(1, " ", 1);
+			}
+			for (i = 0; i < cnt+1-silentMode; i++) {
 				write(1, args[i], strlen(args[i]));
 				write(1, " ", 1);
 			}
@@ -146,15 +177,22 @@ int main(void)
 			}
 			break;
 		default:
-			// Parent waits for child's command completion.
-			child_pid = wait(&i);
-			if (WIFEXITED(i)) {
-				printf("\033[2m--- Operation finished, ");
-				printf("code %d ---\033[0m\n", WEXITSTATUS(i));
+			if (silentMode == 0) {
+				(void) signal(SIGINT, SIG_IGN);
+				// Parent waits for child's command completion.
+				child_pid = wait(&i);
+				if (WIFEXITED(i)) {
+					printf("\033[2m--- Operation finished, ");
+					printf("code %d ---\033[0m\n\n", WEXITSTATUS(i));
+				} else {
+					printf("Child was interrupted.\n\n");
+					exitCode = 1;
+				}
 			} else {
-				printf("Child terminated abnormally.\n");
-				perror("Error code");
-				exitCode = 1;
+				(void) signal(SIGINT, SIG_DFL);
+				printf("\033[2m--- Silently started new process, ");
+				printf("PID = %d ---\033[0m\n\n", pid);
+				sleep(1);
 			}
 			break;
 		}
